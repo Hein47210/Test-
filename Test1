@@ -1,0 +1,203 @@
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "TestEnvironmentUI"
+
+pcall(function() ScreenGui.Parent = CoreGui end) or pcall(function() ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end)
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 220, 0, 260)
+MainFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Simple dragging for testing
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "  Test UI Frame"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = MainFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 10)
+
+Title.LayoutOrder = 0
+local PaddingFrame = Instance.new("Frame")
+PaddingFrame.Size = UDim2.new(1, 0, 0, 30)
+PaddingFrame.BackgroundTransparency = 1
+PaddingFrame.LayoutOrder = 1
+PaddingFrame.Parent = MainFrame
+
+local States = {
+    ESP = false,
+    InstantPrompt = false,
+    KillAura = false
+}
+
+-- Helper function to create standard toggle buttons
+local function CreateToggle(name, layoutOrder, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0, 190, 0, 40)
+    Button.Position = UDim2.new(0, 15, 0, 0) -- Centered horizontally manually via padding if needed, or left offset
+    Button.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    Button.Text = name .. ": OFF"
+    Button.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Button.Font = Enum.Font.SourceSansFrameData
+    Button.TextSize = 16
+    Button.LayoutOrder = layoutOrder
+    Button.AutoButtonColor = false
+    Button.Parent = MainFrame
+    
+    local BCorner = Instance.new("UICorner")
+    BCorner.CornerRadius = UDim.new(0, 6)
+    BCorner.Parent = Button
+
+    local enabled = false
+    Button.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        callback(enabled)
+        if enabled then
+            TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(0, 150, 100), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            Button.Text = name .. ": ON"
+        else
+            TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 50), TextColor3 = Color3.fromRGB(200, 200, 200)}):Play()
+            Button.Text = name .. ": OFF"
+        end
+    end)
+end
+
+--- ==========================================
+--- FEATURE 1: Master UI Toggle Button (UI Visibility)
+--- ==========================================
+-- Press "RightShift" to open/close the entire menu
+game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.RightShift then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+--- ==========================================
+--- FEATURE 2: ESP (Box Highlight)
+--- ==========================================
+local function applyESP(player)
+    if player == LocalPlayer then return end
+    
+    local function setupCharacter(char)
+        if char:FindFirstChild("PlayerESP") then return end
+        
+        local Box = Instance.new("BoxHandleAdornment")
+        Box.Name = "PlayerESP"
+        Box.Size = Vector3.new(4, 6, 4)
+        Box.Color3 = Color3.fromRGB(255, 0, 50)
+        Box.AlwaysOnTop = true
+        Box.ZIndex = 5
+        Box.Transparency = 0.5
+        Box.Adornee = char:WaitForChild("HumanoidRootPart", 5)
+        Box.Parent = char
+        
+        -- Keep hidden if feature is toggled off
+        Box.Visible = States.ESP
+    end
+
+    if player.Character then setupCharacter(player.Character) end
+    player.CharacterAdded:Connect(setupCharacter)
+end
+
+local function toggleESP(state)
+    States.ESP = state
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local box = p.Character:FindFirstChild("PlayerESP")
+            if box then box.Visible = state end
+        end
+    end
+end
+
+-- Initialize ESP for current and new players
+for _, p in ipairs(Players:GetPlayers()) do applyESP(p) end
+Players.PlayerAdded:Connect(applyESP)
+
+CreateToggle("Simple ESP", 2, toggleESP)
+
+--- ==========================================
+--- FEATURE 3: Instant Proximity Prompt
+--- ==========================================
+local originalHoldTimes = {}
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+    if States.InstantPrompt then
+        -- Store original time if not already stored
+        if not originalHoldTimes[prompt] then
+            originalHoldTimes[prompt] = prompt.HoldDuration
+        end
+        prompt.HoldDuration = 0
+    end
+end)
+
+CreateToggle("Instant Prompt", 3, function(state)
+    States.InstantPrompt = state
+    if not state then
+        -- Restore original hold times when turned off
+        for prompt, duration in pairs(originalHoldTimes) do
+            if prompt and prompt.Parent then
+                prompt.HoldDuration = duration
+            end
+        end
+    end
+end)
+
+--- ==========================================
+--- FEATURE 4: NPC / Enemy Kill Aura Frame
+--- ==========================================
+-- NOTE: This attempts to fire an animation or tool click if equipped. 
+-- In a private test environment, replace the tool activation logic with your custom combat remote event if necessary.
+local AURA_RANGE = 15 
+
+RunService.RenderStepped:Connect(function()
+    if not States.KillAura then return end
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local tool = character and character:FindFirstChildOfClass("Tool")
+    
+    if not rootPart or not tool then return end
+
+    -- Search workspace for targets (both Players and NPCs with Humanoids)
+    for _, desc in ipairs(workspace:GetDescendants()) do
+        if desc:IsA("Humanoid") and desc.Parent ~= character then
+            local enemyRoot = desc.Parent:FindFirstChild("HumanoidRootPart")
+            if enemyRoot and desc.Health > 0 then
+                local distance = (rootPart.Position - enemyRoot.Position).Magnitude
+                if distance <= AURA_RANGE then
+                    -- Simulates clicking with a weapon tool equipped
+                    tool:Activate()
+                    break -- Actuating once per frame prevents frame drops
+                end
+            end
+        end
+    end
+end)
+
+CreateToggle("Kill Aura", 4, function(state)
+    States.KillAura = state
+end)
